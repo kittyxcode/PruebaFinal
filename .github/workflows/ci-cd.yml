@@ -28,7 +28,7 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           image: techwave-api
-          args: --file=docker/Dockerfile.api
+          args: --file=docker/dockerfile.api
 
       # Escanear Terraform
       - name: Run Snyk IaC
@@ -63,11 +63,11 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           # Construir y subir imagen de la API
-          docker build -t $ECR_REGISTRY/techwave-api:${{ github.sha }} -f docker/Dockerfile.api .
+          docker build -t $ECR_REGISTRY/techwave-api:${{ github.sha }} -f docker/dockerfile.api .
           docker push $ECR_REGISTRY/techwave-api:${{ github.sha }}
           
           # Construir y subir imagen web
-          docker build -t $ECR_REGISTRY/techwave-web:${{ github.sha }} -f docker/Dockerfile.web .
+          docker build -t $ECR_REGISTRY/techwave-web:${{ github.sha }} -f docker/dockerfile.web .
           docker push $ECR_REGISTRY/techwave-web:${{ github.sha }}
 
   deploy:

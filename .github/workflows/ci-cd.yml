@@ -7,39 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  security-scan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      
-      # Configurar Snyk
-      - name: Run Snyk to check for vulnerabilities
-        uses: snyk/actions/node@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          command: monitor
-          args: --all-projects
-
-      # Escanear Dockerfile
-      - name: Run Snyk Container
-        uses: snyk/actions/docker@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          image: techwave-api
-          args: --file=docker/dockerfile.api
-
-      # Escanear Terraform
-      - name: Run Snyk IaC
-        uses: snyk/actions/iac@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          file: terraform/
-
   build-and-push:
-    needs: security-scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -69,6 +37,38 @@ jobs:
           # Construir y subir imagen web
           docker build -t $ECR_REGISTRY/techwave-web:${{ github.sha }} -f docker/dockerfile.web .
           docker push $ECR_REGISTRY/techwave-web:${{ github.sha }}
+
+  security-scan:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      # Configurar Snyk
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: monitor
+          args: --all-projects
+
+      # Escanear Dockerfile
+      - name: Run Snyk Container
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: ${{ steps.login-ecr.outputs.registry }}/techwave-api:${{ github.sha }}
+          args: --file=docker/dockerfile.api
+
+      # Escanear Terraform
+      - name: Run Snyk IaC
+        uses: snyk/actions/iac@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          file: terraform/
 
   deploy:
     needs: build-and-push
@@ -116,7 +116,6 @@ jobs:
           else
             echo "Bucket already exists"
           fi
-          
           
       # Desplegar con Terraform
       - name: Terraform Init

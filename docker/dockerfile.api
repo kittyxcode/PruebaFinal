@@ -16,3 +16,5 @@ VOLUME /var/log/techwave
 EXPOSE 3000
 
 CMD ["node", "server.js"]
+
+

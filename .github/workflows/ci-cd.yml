@@ -90,50 +90,51 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v1
 
-      # Crear repositorio ECR
-      - name: Create ECR Repository
+      # Crear repositorios ECR
+      - name: Create ECR Repositories
         run: |
           cd terraform
-          terraform init -target=aws_ecr_repository.app
-          terraform apply -target=aws_ecr_repository.app -auto-approve
+          terraform init -target=aws_ecr_repository.app -target=aws_ecr_repository.web
+          terraform apply -target=aws_ecr_repository.app -target=aws_ecr_repository.web -auto-approve
 
       # Login a ECR
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-# Construir y subir imagen Docker
+      # Verificar existencia de repositorios ECR
+      - name: Ensure ECR repositories exist
+        run: |
+          REPOS=("techwave-api" "techwave-web")
+          for REPO in "${REPOS[@]}"; do
+            echo "Verificando si el repositorio $REPO existe en ECR..."
+            if ! aws ecr describe-repositories --repository-name $REPO > /dev/null 2>&1; then
+              echo "Error: El repositorio $REPO no existe."
+              exit 1
+            else
+              echo "Repositorio $REPO existe."
+            fi
+          done
+
+      # Construir y subir imagen Docker
       - name: Build and push Docker images
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          # Construir y subir imagen de la API
-          echo "Construyendo y subiendo imagen de la API..."
-          docker build -t $ECR_REGISTRY/techwave-api:${{ github.sha }} -f docker/dockerfile.api .
-          docker push $ECR_REGISTRY/techwave-api:${{ github.sha }}
+          REPOS=("techwave-api" "techwave-web")
+          for REPO in "${REPOS[@]}"; do
+            echo "Construyendo y subiendo imagen para $REPO..."
+            docker build -t $ECR_REGISTRY/$REPO:${{ github.sha }} -f docker/dockerfile.${REPO##techwave-} .
+            docker push $ECR_REGISTRY/$REPO:${{ github.sha }}
 
-          # Verificar y esperar a que la imagen API esté disponible
-          echo "Esperando a que la imagen de la API esté disponible en ECR..."
-          until aws ecr describe-images --repository-name techwave-api --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1; do
-            echo "La imagen de la API aún no está disponible, esperando..."
-            sleep 10
+            # Verificar disponibilidad de la imagen
+            echo "Esperando a que la imagen para $REPO esté disponible..."
+            until aws ecr describe-images --repository-name $REPO --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1; do
+              echo "La imagen para $REPO aún no está disponible, esperando..."
+              sleep 10
+            done
+            echo "Imagen para $REPO disponible en ECR."
           done
-          echo "Imagen de la API disponible en ECR."
-
-          # Construir y subir imagen web
-          echo "Construyendo y subiendo imagen web..."
-          docker build -t $ECR_REGISTRY/techwave-web:${{ github.sha }} -f docker/dockerfile.web .
-          docker push $ECR_REGISTRY/techwave-web:${{ github.sha }}
-
-          # Verificar y esperar a que la imagen Web esté disponible
-          echo "Esperando a que la imagen web esté disponible en ECR..."
-          until aws ecr describe-images --repository-name techwave-web --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1; do
-          echo "La imagen web aún no está disponible, esperando..."
-          sleep 10
-          done
-          echo "Imagen Web disponible en ECR."
-
-
 
   deploy:
     needs: build-and-push
@@ -186,7 +187,7 @@ jobs:
       - name: Terraform Init
         run: |
           cd terraform
-          terraform init
+          terraform init -backend-config="bucket=techwave-terraform-state"
 
       - name: Terraform Apply
         run: |

@@ -1,6 +1,7 @@
 # ==================================
 # main.tf
 # ==================================
+
 # VPC y Networking
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
@@ -138,6 +139,23 @@ resource "null_resource" "wait_for_ecr_web" {
     command = <<EOT
       # Comprobamos si el repositorio existe. Si no, espera e intenta de nuevo.
       REPO_NAME="techwave-web"
+      until aws ecr describe-repositories --repository-names $REPO_NAME > /dev/null 2>&1; do
+        echo "Esperando que el repositorio $REPO_NAME esté disponible..."
+        sleep 10
+      done
+      echo "Repositorio $REPO_NAME disponible."
+    EOT
+  }
+}
+
+# Reintentar hasta que el repositorio techwave-api esté disponible
+resource "null_resource" "wait_for_ecr_api" {
+  depends_on = [aws_ecr_repository.app]
+
+  provisioner "local-exec" {
+    command = <<EOT
+      # Comprobamos si el repositorio existe. Si no, espera e intenta de nuevo.
+      REPO_NAME="techwave-api"
       until aws ecr describe-repositories --repository-names $REPO_NAME > /dev/null 2>&1; do
         echo "Esperando que el repositorio $REPO_NAME esté disponible..."
         sleep 10
@@ -303,6 +321,8 @@ resource "aws_lambda_function" "process_message" {
   }
 
   tags = var.project_tags
+
+  depends_on = [null_resource.wait_for_ecr_api, null_resource.wait_for_ecr_web]  # Espera por los repositorios ECR
 }
 
 # Trigger de SQS para Lambda
@@ -311,4 +331,3 @@ resource "aws_lambda_event_source_mapping" "sqs_lambda" {
   function_name    = aws_lambda_function.process_message.arn
   batch_size       = 1
 }
-

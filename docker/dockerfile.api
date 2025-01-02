@@ -4,7 +4,7 @@ WORKDIR /usr/src/app
 
 # Instalar dependencias
 COPY app/api/package*.json ./
-RUN npm install
+RUN npm install -g npm@11.0.0
 
 # Copiar código fuente
 COPY app/api .

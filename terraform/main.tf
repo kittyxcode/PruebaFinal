@@ -98,7 +98,7 @@ resource "aws_security_group" "web" {
 
 # ECR Repository
 resource "aws_ecr_repository" "app" {
-  name                 = "techwave-app"
+  name = "techwave-api"
   image_tag_mutability = "IMMUTABLE"
 
   encryption_configuration {

@@ -1,3 +1,6 @@
+# ==================================
+# main.tf
+# ==================================
 # VPC y Networking
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
@@ -11,9 +14,9 @@ resource "aws_vpc" "main" {
 
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block             = cidrsubnet(var.vpc_cidr, 8, 1)
+  cidr_block              = cidrsubnet(var.vpc_cidr, 8, 1)
   availability_zone       = "${var.aws_region}a"
-  map_public_ip_on_launch = true
+  map_public_ip_on_launch = false
 
   tags = merge(var.project_tags, {
     Name = "techwave-public-subnet-${var.environment}"
@@ -68,21 +71,21 @@ resource "aws_security_group" "web" {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.ingress_cidr]
   }
 
   ingress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.ingress_cidr]
   }
 
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.vpc_cidr]
   }
 
   tags = merge(var.project_tags, {
@@ -93,7 +96,12 @@ resource "aws_security_group" "web" {
 # ECR Repository
 resource "aws_ecr_repository" "app" {
   name                 = "techwave-app"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
+
+  encryption_configuration {
+    encryption_type = "KMS"
+    kms_key         = aws_kms_key.ecr.arn
+  }
 
   image_scanning_configuration {
     scan_on_push = true
@@ -106,14 +114,16 @@ resource "aws_ecr_repository" "app" {
 resource "aws_cloudwatch_log_group" "app_logs" {
   name              = "/techwave/app"
   retention_in_days = 14
+  kms_key_id        = aws_kms_key.cloudwatch.arn
 
   tags = var.project_tags
 }
 
 # SNS Topic para alertas
 resource "aws_sns_topic" "alerts" {
-  name = "techwave-alerts"
-  
+  name              = "techwave-alerts"
+  kms_master_key_id = aws_kms_key.sns.arn
+
   tags = var.project_tags
 }
 
@@ -131,20 +141,21 @@ resource "aws_cloudwatch_metric_alarm" "cpu_alarm" {
 
 # SNS Topic para Lambda
 resource "aws_sns_topic" "lambda_updates" {
-  name = "techwave-lambda-updates"
-  
+  name              = "techwave-lambda-updates"
+  kms_master_key_id = aws_kms_key.sns.arn
+
   tags = var.project_tags
 }
 
 # SQS Queue
 resource "aws_sqs_queue" "lambda_queue" {
   name = "techwave-lambda-queue"
-  
+
   delay_seconds             = 0
-  max_message_size         = 262144
+  max_message_size          = 262144
   message_retention_seconds = 86400
   receive_wait_time_seconds = 10
-  
+
   tags = var.project_tags
 }
 
@@ -160,11 +171,11 @@ resource "aws_sqs_queue_policy" "lambda_queue_policy" {
         Principal = {
           Service = "sns.amazonaws.com"
         }
-        Action = "sqs:SendMessage"
+        Action   = "sqs:SendMessage"
         Resource = aws_sqs_queue.lambda_queue.arn
         Condition = {
           ArnEquals = {
-            "aws:SourceArn": aws_sns_topic.lambda_updates.arn
+            "aws:SourceArn" : aws_sns_topic.lambda_updates.arn
           }
         }
       }
@@ -243,6 +254,10 @@ resource "aws_lambda_function" "process_message" {
   role          = aws_iam_role.lambda_role.arn
   handler       = "index.handler"
   runtime       = "nodejs16.x"
+
+  tracing_config {
+    mode = "Active"
+  }
 
   environment {
     variables = {

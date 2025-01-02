@@ -57,6 +57,17 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      # Configurar Terraform solo para crear ECR
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      # Crear repositorio ECR
+      - name: Create ECR Repository
+        run: |
+          cd terraform
+          terraform init -target=aws_ecr_repository.app
+          terraform apply -target=aws_ecr_repository.app -auto-approve
+
       # Login a ECR
       - name: Login to Amazon ECR
         id: login-ecr
@@ -74,7 +85,6 @@ jobs:
           # Construir y subir imagen web
           docker build -t $ECR_REGISTRY/techwave-web:${{ github.sha }} -f docker/dockerfile.web .
           docker push $ECR_REGISTRY/techwave-web:${{ github.sha }}
-
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest

@@ -1,17 +1,27 @@
-FROM node:22-alpine
+FROM node:20-alpine
+
+# Crear usuario no root
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 WORKDIR /usr/src/app
 
 # Instalar dependencias
 COPY app/api/package*.json ./
-RUN npm install -g npm@11.0.0
+RUN npm install -g npm@latest && \
+    npm install
 
 # Copiar código fuente
 COPY app/api .
 
-# Crear directorio para logs
-RUN mkdir -p /var/log/techwave
+# Crear directorio para logs y establecer permisos
+RUN mkdir -p /var/log/techwave && \
+    chown -R appuser:appgroup /var/log/techwave && \
+    chmod 755 /var/log/techwave
+
 VOLUME /var/log/techwave
+
+# Cambiar al usuario no root
+USER appuser
 
 EXPOSE 3000
 

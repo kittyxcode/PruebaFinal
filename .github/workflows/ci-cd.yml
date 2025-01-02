@@ -1,0 +1,130 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      # Configurar Snyk
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: monitor
+          args: --all-projects
+
+      # Escanear Dockerfile
+      - name: Run Snyk Container
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: techwave-api
+          args: --file=docker/Dockerfile.api
+
+      # Escanear Terraform
+      - name: Run Snyk IaC
+        uses: snyk/actions/iac@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          file: terraform/
+
+  build-and-push:
+    needs: security-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      # Configurar AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+          
+      # Login a ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+        
+      # Construir y subir imagen Docker
+      - name: Build and push Docker images
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          # Construir y subir imagen de la API
+          docker build -t $ECR_REGISTRY/techwave-api:${{ github.sha }} -f docker/Dockerfile.api .
+          docker push $ECR_REGISTRY/techwave-api:${{ github.sha }}
+          
+          # Construir y subir imagen web
+          docker build -t $ECR_REGISTRY/techwave-web:${{ github.sha }} -f docker/Dockerfile.web .
+          docker push $ECR_REGISTRY/techwave-web:${{ github.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      # Configurar Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+        
+      # Configurar AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # Crear bucket S3 para estado de Terraform si no existe
+      - name: Create Terraform state bucket
+        run: |
+          if ! aws s3api head-bucket --bucket techwave-terraform-state 2>/dev/null; then
+            aws s3api create-bucket \
+              --bucket techwave-terraform-state \
+              --region us-east-1
+
+            # Habilitar versionado
+            aws s3api put-bucket-versioning \
+              --bucket techwave-terraform-state \
+              --versioning-configuration Status=Enabled
+
+            # Habilitar cifrado
+            aws s3api put-bucket-encryption \
+              --bucket techwave-terraform-state \
+              --server-side-encryption-configuration '{
+                "Rules": [
+                  {
+                    "ApplyServerSideEncryptionByDefault": {
+                      "SSEAlgorithm": "AES256"
+                    }
+                  }
+                ]
+              }'
+          else
+            echo "Bucket already exists"
+          fi
+          
+          
+      # Desplegar con Terraform
+      - name: Terraform Init
+        run: |
+          cd terraform
+          terraform init
+          
+      - name: Terraform Apply
+        run: |
+          cd terraform
+          terraform apply -auto-approve

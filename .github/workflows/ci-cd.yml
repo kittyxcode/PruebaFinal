@@ -57,7 +57,36 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # Configurar Terraform solo para crear ECR
+      # Crear bucket S3 para estado de Terraform si no existe
+      - name: Create Terraform state bucket
+        run: |
+          if ! aws s3api head-bucket --bucket techwave-terraform-state 2>/dev/null; then
+            aws s3api create-bucket \
+              --bucket techwave-terraform-state \
+              --region us-east-1
+
+            # Habilitar versionado
+            aws s3api put-bucket-versioning \
+              --bucket techwave-terraform-state \
+              --versioning-configuration Status=Enabled
+
+            # Habilitar cifrado
+            aws s3api put-bucket-encryption \
+              --bucket techwave-terraform-state \
+              --server-side-encryption-configuration '{
+                "Rules": [
+                  {
+                    "ApplyServerSideEncryptionByDefault": {
+                      "SSEAlgorithm": "AES256"
+                    }
+                  }
+                ]
+              }'
+          else
+            echo "Bucket already exists"
+          fi
+
+      # Configurar Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v1
 
@@ -72,6 +101,8 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
+        
+      # El resto del job continúa igual...
         
       # Construir y subir imagen Docker
       - name: Build and push Docker images

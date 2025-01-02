@@ -108,28 +108,31 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           # Construir y subir imagen de la API
+          echo "Construyendo y subiendo imagen de la API..."
           docker build -t $ECR_REGISTRY/techwave-api:${{ github.sha }} -f docker/dockerfile.api .
           docker push $ECR_REGISTRY/techwave-api:${{ github.sha }}
 
-          # Esperar a que la imagen API se suba correctamente
-          echo "Esperando a que la imagen API esté disponible en ECR..."
+          # Verificar y esperar a que la imagen API esté disponible
+          echo "Esperando a que la imagen de la API esté disponible en ECR..."
           until aws ecr describe-images --repository-name techwave-api --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1; do
-          echo "La imagen de la API aún no está disponible, esperando..."
-          sleep 10
+            echo "La imagen de la API aún no está disponible, esperando..."
+            sleep 10
           done
           echo "Imagen de la API disponible en ECR."
 
           # Construir y subir imagen web
+          echo "Construyendo y subiendo imagen web..."
           docker build -t $ECR_REGISTRY/techwave-web:${{ github.sha }} -f docker/dockerfile.web .
           docker push $ECR_REGISTRY/techwave-web:${{ github.sha }}
 
-          # Esperar a que la imagen Web se suba correctamente
-          echo "Esperando a que la imagen Web esté disponible en ECR..."
+          # Verificar y esperar a que la imagen Web esté disponible
+          echo "Esperando a que la imagen web esté disponible en ECR..."
           until aws ecr describe-images --repository-name techwave-web --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1; do
           echo "La imagen web aún no está disponible, esperando..."
           sleep 10
           done
           echo "Imagen Web disponible en ECR."
+
 
 
   deploy:

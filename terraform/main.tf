@@ -96,7 +96,7 @@ resource "aws_security_group" "web" {
   })
 }
 
-# ECR Repository
+# Repositorio ECR para API
 resource "aws_ecr_repository" "app" {
   name = "techwave-api"
   image_tag_mutability = "IMMUTABLE"
@@ -113,14 +113,31 @@ resource "aws_ecr_repository" "app" {
   tags = var.project_tags
 }
 
-# Reintentar hasta que el repositorio esté disponible
-resource "null_resource" "wait_for_ecr" {
-  depends_on = [aws_ecr_repository.app]
+# Repositorio ECR para Web
+resource "aws_ecr_repository" "web" {
+  name = "techwave-web"
+  image_tag_mutability = "IMMUTABLE"
+
+  encryption_configuration {
+    encryption_type = "KMS"
+    kms_key         = aws_kms_key.ecr.arn
+  }
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = var.project_tags
+}
+
+# Reintentar hasta que el repositorio techwave-web esté disponible
+resource "null_resource" "wait_for_ecr_web" {
+  depends_on = [aws_ecr_repository.web]
 
   provisioner "local-exec" {
     command = <<EOT
       # Comprobamos si el repositorio existe. Si no, espera e intenta de nuevo.
-      REPO_NAME="techwave-api"
+      REPO_NAME="techwave-web"
       until aws ecr describe-repositories --repository-names $REPO_NAME > /dev/null 2>&1; do
         echo "Esperando que el repositorio $REPO_NAME esté disponible..."
         sleep 10
@@ -129,7 +146,6 @@ resource "null_resource" "wait_for_ecr" {
     EOT
   }
 }
-
 
 # CloudWatch
 resource "aws_cloudwatch_log_group" "app_logs" {
@@ -295,3 +311,4 @@ resource "aws_lambda_event_source_mapping" "sqs_lambda" {
   function_name    = aws_lambda_function.process_message.arn
   batch_size       = 1
 }
+

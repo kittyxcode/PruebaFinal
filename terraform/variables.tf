@@ -29,7 +29,9 @@ variable "project_tags" {
   }
 }
 
-variable "ingress_cidr" {
-  description = "Rango de IP permitido para acceso entrante"
-  default     = "0.0.0.0/0"
+variable "allowed_ips" {
+  description = "Lista de rangos IP permitidos para acceso web"
+  type        = list(string)
+  default     = ["10.0.0.0/16", "192.168.1.0/24"]  # Ajusta estos rangos según tus necesidades
 }
+

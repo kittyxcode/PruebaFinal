@@ -71,14 +71,16 @@ resource "aws_security_group" "web" {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = [var.ingress_cidr]
+    cidr_blocks = var.allowed_ips
+    description = "HTTP access from allowed IPs"
   }
 
   ingress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = [var.ingress_cidr]
+    cidr_blocks = var.allowed_ips
+    description = "HTTPS access from allowed IPs"
   }
 
   egress {
@@ -86,6 +88,7 @@ resource "aws_security_group" "web" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = [var.vpc_cidr]
+    description = "Allow all outbound traffic within VPC"
   }
 
   tags = merge(var.project_tags, {

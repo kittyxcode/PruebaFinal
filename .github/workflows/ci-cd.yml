@@ -102,7 +102,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      # Construir y subir imagen Docker
+# Construir y subir imagen Docker
       - name: Build and push Docker images
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -110,10 +110,27 @@ jobs:
           # Construir y subir imagen de la API
           docker build -t $ECR_REGISTRY/techwave-api:${{ github.sha }} -f docker/dockerfile.api .
           docker push $ECR_REGISTRY/techwave-api:${{ github.sha }}
-          
+
+          # Esperar a que la imagen API se suba correctamente
+          echo "Esperando a que la imagen API esté disponible en ECR..."
+          until aws ecr describe-images --repository-name techwave-api --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1; do
+          echo "La imagen de la API aún no está disponible, esperando..."
+          sleep 10
+          done
+          echo "Imagen de la API disponible en ECR."
+
           # Construir y subir imagen web
           docker build -t $ECR_REGISTRY/techwave-web:${{ github.sha }} -f docker/dockerfile.web .
           docker push $ECR_REGISTRY/techwave-web:${{ github.sha }}
+
+          # Esperar a que la imagen Web se suba correctamente
+          echo "Esperando a que la imagen Web esté disponible en ECR..."
+          until aws ecr describe-images --repository-name techwave-web --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1; do
+          echo "La imagen web aún no está disponible, esperando..."
+          sleep 10
+          done
+          echo "Imagen Web disponible en ECR."
+
 
   deploy:
     needs: build-and-push

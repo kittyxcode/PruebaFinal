@@ -113,6 +113,24 @@ resource "aws_ecr_repository" "app" {
   tags = var.project_tags
 }
 
+# Reintentar hasta que el repositorio esté disponible
+resource "null_resource" "wait_for_ecr" {
+  depends_on = [aws_ecr_repository.app]
+
+  provisioner "local-exec" {
+    command = <<EOT
+      # Comprobamos si el repositorio existe. Si no, espera e intenta de nuevo.
+      REPO_NAME="techwave-api"
+      until aws ecr describe-repositories --repository-names $REPO_NAME > /dev/null 2>&1; do
+        echo "Esperando que el repositorio $REPO_NAME esté disponible..."
+        sleep 10
+      done
+      echo "Repositorio $REPO_NAME disponible."
+    EOT
+  }
+}
+
+
 # CloudWatch
 resource "aws_cloudwatch_log_group" "app_logs" {
   name              = "/techwave/app"

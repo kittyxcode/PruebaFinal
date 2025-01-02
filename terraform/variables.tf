@@ -25,3 +25,8 @@ variable "project_tags" {
     Owner       = "DevOps"
   }
 }
+
+variable "ingress_cidr" {
+  description = "Rango de IP permitido para acceso entrante"
+  default     = "0.0.0.0/0"
+}

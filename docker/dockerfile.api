@@ -1,0 +1,18 @@
+FROM node:16-alpine
+
+WORKDIR /usr/src/app
+
+# Instalar dependencias
+COPY app/api/package*.json ./
+RUN npm install
+
+# Copiar código fuente
+COPY app/api .
+
+# Crear directorio para logs
+RUN mkdir -p /var/log/techwave
+VOLUME /var/log/techwave
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]

@@ -51,3 +51,21 @@ output "cloudwatch_alarm_name" {
   description = "Nombre de la alarma de CloudWatch"
   value       = aws_cloudwatch_metric_alarm.cpu_alarm.alarm_name
 }
+
+# Salida de la función Lambda
+output "lambda_function_arn" {
+  description = "ARN de la función Lambda"
+  value       = aws_lambda_function.process_message.arn
+}
+
+# Salida de la cola SQS
+output "sqs_queue_url" {
+  description = "URL de la cola SQS"
+  value       = aws_sqs_queue.lambda_queue.url
+}
+
+# Salida del ARN del rol de Lambda
+output "lambda_role_arn" {
+  description = "ARN del rol IAM de Lambda"
+  value       = aws_iam_role.lambda_role.arn
+}

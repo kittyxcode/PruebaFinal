@@ -126,4 +126,136 @@ resource "aws_cloudwatch_metric_alarm" "cpu_alarm" {
   namespace           = "AWS/EC2"
   period             = "120"
   statistic          = "Average"
-  threshold          = "80
+  threshold          = "80"
+}
+
+# SNS Topic para Lambda
+resource "aws_sns_topic" "lambda_updates" {
+  name = "techwave-lambda-updates"
+  
+  tags = var.project_tags
+}
+
+# SQS Queue
+resource "aws_sqs_queue" "lambda_queue" {
+  name = "techwave-lambda-queue"
+  
+  delay_seconds             = 0
+  max_message_size         = 262144
+  message_retention_seconds = 86400
+  receive_wait_time_seconds = 10
+  
+  tags = var.project_tags
+}
+
+# Política para permitir que SNS publique en SQS
+resource "aws_sqs_queue_policy" "lambda_queue_policy" {
+  queue_url = aws_sqs_queue.lambda_queue.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "sns.amazonaws.com"
+        }
+        Action = "sqs:SendMessage"
+        Resource = aws_sqs_queue.lambda_queue.arn
+        Condition = {
+          ArnEquals = {
+            "aws:SourceArn": aws_sns_topic.lambda_updates.arn
+          }
+        }
+      }
+    ]
+  })
+}
+
+# Suscripción de SQS a SNS
+resource "aws_sns_topic_subscription" "lambda_updates_sqs" {
+  topic_arn = aws_sns_topic.lambda_updates.arn
+  protocol  = "sqs"
+  endpoint  = aws_sqs_queue.lambda_queue.arn
+}
+
+# Role IAM para Lambda
+resource "aws_iam_role" "lambda_role" {
+  name = "techwave-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = var.project_tags
+}
+
+# Política para el rol de Lambda
+resource "aws_iam_role_policy" "lambda_policy" {
+  name = "techwave-lambda-policy"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes"
+        ]
+        Resource = aws_sqs_queue.lambda_queue.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "sns:Publish"
+        ]
+        Resource = aws_sns_topic.lambda_updates.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:*:*:*"
+      }
+    ]
+  })
+}
+
+# Función Lambda
+resource "aws_lambda_function" "process_message" {
+  filename      = "../lambda/function.zip"
+  function_name = "techwave-process-message"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "index.handler"
+  runtime       = "nodejs16.x"
+
+  environment {
+    variables = {
+      SNS_TOPIC_ARN = aws_sns_topic.lambda_updates.arn
+    }
+  }
+
+  tags = var.project_tags
+}
+
+# Trigger de SQS para Lambda
+resource "aws_lambda_event_source_mapping" "sqs_lambda" {
+  event_source_arn = aws_sqs_queue.lambda_queue.arn
+  function_name    = aws_lambda_function.process_message.arn
+  batch_size       = 1
+}

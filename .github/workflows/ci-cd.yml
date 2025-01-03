@@ -102,6 +102,20 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
+      # Verificar existencia de repositorios ECR
+      - name: Ensure ECR repositories exist
+        run: |
+          REPOS=("techwave-api" "techwave-web")
+          for REPO in "${REPOS[@]}"; do
+            echo "Verificando si el repositorio $REPO existe en ECR..."
+            if ! aws ecr describe-repositories --repository-name $REPO > /dev/null 2>&1; then
+              echo "Error: El repositorio $REPO no existe."
+              exit 1
+            else
+              echo "Repositorio $REPO existe."
+            fi
+          done
+
       # Construir y subir imagen Docker
       - name: Build and push Docker images
         env:
@@ -110,33 +124,27 @@ jobs:
           REPOS=("techwave-api" "techwave-web")
           for REPO in "${REPOS[@]}"; do
             echo "Construyendo y subiendo imagen para $REPO..."
-            # Añadir --no-cache para evitar problemas de caché
-            docker build --no-cache -t $ECR_REGISTRY/$REPO:${{ github.sha }} -f docker/dockerfile.${REPO##techwave-} .
+            docker build -t $ECR_REGISTRY/$REPO:${{ github.sha }} -f docker/dockerfile.${REPO##techwave-} .
             docker push $ECR_REGISTRY/$REPO:${{ github.sha }}
-            
-            # Mejorar la verificación de disponibilidad
-            MAX_RETRIES=15
-            RETRY_INTERVAL=20
+            echo "Imagen para $REPO subida a ECR con éxito."
+
+            # Verificar disponibilidad de la imagen con reintentos
+            MAX_RETRIES=10
             RETRIES=0
-            
-            while [ $RETRIES -lt $MAX_RETRIES ]; do
-              if aws ecr describe-images \
-                --repository-name $REPO \
-                --image-ids imageTag=${{ github.sha }} \
-                --region us-east-1 >/dev/null 2>&1; then
-                echo "✓ Imagen $REPO disponible en ECR"
-                break
-              fi
-              
+            echo "Esperando a que la imagen para $REPO esté disponible..."
+
+            until aws ecr describe-images --repository-name $REPO --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1 || [ $RETRIES -ge $MAX_RETRIES ]; do
+              echo "La imagen para $REPO aún no está disponible, esperando..."
+              sleep 30  # Espera más tiempo entre los intentos
               ((RETRIES++))
-              if [ $RETRIES -eq $MAX_RETRIES ]; then
-                echo "✗ Error: Timeout esperando la imagen $REPO"
-                exit 1
-              fi
-              
-              echo "Intento $RETRIES de $MAX_RETRIES - Esperando imagen $REPO..."
-              sleep $RETRY_INTERVAL
             done
+
+            if [ $RETRIES -ge $MAX_RETRIES ]; then
+              echo "Error: La imagen para $REPO no está disponible después de $MAX_RETRIES intentos."
+              exit 1
+            fi
+
+            echo "Imagen para $REPO disponible en ECR."
           done
 
   deploy:
@@ -156,6 +164,35 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
+
+      # Crear bucket S3 para estado de Terraform si no existe
+      - name: Create Terraform state bucket
+        run: |
+          if ! aws s3api head-bucket --bucket techwave-terraform-state 2>/dev/null; then
+            aws s3api create-bucket \
+              --bucket techwave-terraform-state \
+              --region us-east-1
+
+            # Habilitar versionado
+            aws s3api put-bucket-versioning \
+              --bucket techwave-terraform-state \
+              --versioning-configuration Status=Enabled
+
+            # Habilitar cifrado
+            aws s3api put-bucket-encryption \
+              --bucket techwave-terraform-state \
+              --server-side-encryption-configuration '{
+                "Rules": [
+                  {
+                    "ApplyServerSideEncryptionByDefault": {
+                      "SSEAlgorithm": "AES256"
+                    }
+                  }
+                ]
+              }'
+          else
+            echo "Bucket already exists"
+          fi
 
       # Desplegar con Terraform
       - name: Terraform Init

@@ -8,6 +8,25 @@ resource "aws_kms_key" "cloudwatch" {
   enable_key_rotation     = true
 
   tags = var.project_tags
+
+  # Permitir que CloudWatch Logs use esta clave KMS
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowCloudWatchLogsToUseKey"
+        Effect    = "Allow"
+        Action    = [
+          "kms:Decrypt",
+          "kms:Encrypt"
+        ]
+        Resource  = "*"
+        Principal = {
+          Service = "logs.amazonaws.com"
+        }
+      }
+    ]
+  })
 }
 
 resource "aws_kms_alias" "cloudwatch" {

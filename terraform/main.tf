@@ -1,7 +1,3 @@
-# ==================================
-# main.tf
-# ==================================
-
 # VPC y Networking
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
@@ -99,7 +95,7 @@ resource "aws_security_group" "web" {
 
 # Repositorio ECR para API
 resource "aws_ecr_repository" "app" {
-  name = "techwave-api"
+  name                 = "techwave-api"
   image_tag_mutability = "IMMUTABLE"
 
   encryption_configuration {
@@ -109,6 +105,26 @@ resource "aws_ecr_repository" "app" {
 
   image_scanning_configuration {
     scan_on_push = true
+  }
+
+  lifecycle_policy {
+    policy = jsonencode({
+      rules = [
+        {
+          rulePriority = 1
+          description  = "Keep last 30 images"
+          selection = {
+            tagStatus     = "tagged"
+            tagPrefixList = ["v"]
+            countType     = "imageCountMoreThan"
+            countNumber   = 30
+          }
+          action = {
+            type = "expire"
+          }
+        }
+      ]
+    })
   }
 
   tags = var.project_tags
@@ -116,7 +132,7 @@ resource "aws_ecr_repository" "app" {
 
 # Repositorio ECR para Web
 resource "aws_ecr_repository" "web" {
-  name = "techwave-web"
+  name                 = "techwave-web"
   image_tag_mutability = "IMMUTABLE"
 
   encryption_configuration {
@@ -128,41 +144,53 @@ resource "aws_ecr_repository" "web" {
     scan_on_push = true
   }
 
+  lifecycle_policy {
+    policy = jsonencode({
+      rules = [
+        {
+          rulePriority = 1
+          description  = "Keep last 30 images"
+          selection = {
+            tagStatus     = "tagged"
+            tagPrefixList = ["v"]
+            countType     = "imageCountMoreThan"
+            countNumber   = 30
+          }
+          action = {
+            type = "expire"
+          }
+        }
+      ]
+    })
+  }
+
   tags = var.project_tags
 }
 
-# Reintentar hasta que el repositorio techwave-web esté disponible
-resource "null_resource" "wait_for_ecr_web" {
-  depends_on = [aws_ecr_repository.web]
+# Política IAM para ECR
+resource "aws_iam_role_policy" "ecr_policy" {
+  name = "techwave-ecr-policy"
+  role = aws_iam_role.lambda_role.id
 
-  provisioner "local-exec" {
-    command = <<EOT
-      # Comprobamos si el repositorio existe. Si no, espera e intenta de nuevo.
-      REPO_NAME="techwave-web"
-      until aws ecr describe-repositories --repository-names $REPO_NAME > /dev/null 2>&1; do
-        echo "Esperando que el repositorio $REPO_NAME esté disponible..."
-        sleep 10
-      done
-      echo "Repositorio $REPO_NAME disponible."
-    EOT
-  }
-}
-
-# Reintentar hasta que el repositorio techwave-api esté disponible
-resource "null_resource" "wait_for_ecr_api" {
-  depends_on = [aws_ecr_repository.app]
-
-  provisioner "local-exec" {
-    command = <<EOT
-      # Comprobamos si el repositorio existe. Si no, espera e intenta de nuevo.
-      REPO_NAME="techwave-api"
-      until aws ecr describe-repositories --repository-names $REPO_NAME > /dev/null 2>&1; do
-        echo "Esperando que el repositorio $REPO_NAME esté disponible..."
-        sleep 10
-      done
-      echo "Repositorio $REPO_NAME disponible."
-    EOT
-  }
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:PutImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 # CloudWatch
@@ -265,43 +293,6 @@ resource "aws_iam_role" "lambda_role" {
   tags = var.project_tags
 }
 
-# Política para el rol de Lambda
-resource "aws_iam_role_policy" "lambda_policy" {
-  name = "techwave-lambda-policy"
-  role = aws_iam_role.lambda_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:ReceiveMessage",
-          "sqs:DeleteMessage",
-          "sqs:GetQueueAttributes"
-        ]
-        Resource = aws_sqs_queue.lambda_queue.arn
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "sns:Publish"
-        ]
-        Resource = aws_sns_topic.lambda_updates.arn
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "arn:aws:logs:*:*:*"
-      }
-    ]
-  })
-}
-
 # Función Lambda
 resource "aws_lambda_function" "process_message" {
   filename      = "../lambda/function.zip"
@@ -314,15 +305,15 @@ resource "aws_lambda_function" "process_message" {
     mode = "Active"
   }
 
-  environment {
+   environment {
     variables = {
       SNS_TOPIC_ARN = aws_sns_topic.lambda_updates.arn
+      ENVIRONMENT   = var.environment
+      LOG_LEVEL     = "INFO"
     }
   }
 
   tags = var.project_tags
-
-  depends_on = [null_resource.wait_for_ecr_api, null_resource.wait_for_ecr_web]  # Espera por los repositorios ECR
 }
 
 # Trigger de SQS para Lambda
@@ -331,3 +322,5 @@ resource "aws_lambda_event_source_mapping" "sqs_lambda" {
   function_name    = aws_lambda_function.process_message.arn
   batch_size       = 1
 }
+
+# Trigge

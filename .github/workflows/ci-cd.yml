@@ -16,7 +16,6 @@ jobs:
       - name: Build Docker image
         run: |
           docker build -t techwave-api:latest -f docker/dockerfile.api .
-          echo "Imagen Docker construida con éxito"
 
       # Configurar Snyk
       - name: Run Snyk to check for vulnerabilities
@@ -131,10 +130,18 @@ jobs:
 
             # Verificar disponibilidad de la imagen
             echo "Esperando a que la imagen para $REPO esté disponible..."
-            until aws ecr describe-images --repository-name $REPO --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1; do
+            MAX_RETRIES=10
+            RETRIES=0
+            until aws ecr describe-images --repository-name $REPO --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1 || [ $RETRIES -eq $MAX_RETRIES ]; do
               echo "La imagen para $REPO aún no está disponible, esperando..."
-              sleep 30  # Aumentado el tiempo de espera
+              sleep 30  # Aumentamos aún más el tiempo de espera
+              ((RETRIES++))
             done
+
+            if [ $RETRIES -eq $MAX_RETRIES ]; then
+              echo "Error: La imagen para $REPO no está disponible después de $MAX_RETRIES intentos."
+              exit 1
+            fi
             echo "Imagen para $REPO disponible en ECR."
           done
 

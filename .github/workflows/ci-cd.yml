@@ -16,6 +16,7 @@ jobs:
       - name: Build Docker image
         run: |
           docker build -t techwave-api:latest -f docker/dockerfile.api .
+          echo "Imagen Docker construida con éxito"
 
       # Configurar Snyk
       - name: Run Snyk to check for vulnerabilities
@@ -126,12 +127,13 @@ jobs:
             echo "Construyendo y subiendo imagen para $REPO..."
             docker build -t $ECR_REGISTRY/$REPO:${{ github.sha }} -f docker/dockerfile.${REPO##techwave-} .
             docker push $ECR_REGISTRY/$REPO:${{ github.sha }}
+            echo "Imagen para $REPO subida a ECR con éxito."
 
             # Verificar disponibilidad de la imagen
             echo "Esperando a que la imagen para $REPO esté disponible..."
             until aws ecr describe-images --repository-name $REPO --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1; do
               echo "La imagen para $REPO aún no está disponible, esperando..."
-              sleep 10
+              sleep 30  # Aumentado el tiempo de espera
             done
             echo "Imagen para $REPO disponible en ECR."
           done

@@ -15,7 +15,7 @@ jobs:
       # Construir imagen Docker para escaneo
       - name: Build Docker image
         run: |
-          docker build -t techwave-api:latest -f docker/dockerfile.api .
+          docker build -t techwave-api:scan -f docker/dockerfile.api .
 
       # Configurar Snyk
       - name: Run Snyk to check for vulnerabilities
@@ -32,7 +32,7 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          image: techwave-api:latest
+          image: techwave-api:scan
           args: --file=docker/dockerfile.api
 
       # Escanear Terraform
@@ -116,35 +116,33 @@ jobs:
             fi
           done
 
-      # Construir y subir imagen Docker con mejor verificación
+      # Construir y subir imagen Docker con tags únicos
       - name: Build and push Docker images
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           REPOS=("techwave-api" "techwave-web")
-          # Generar un timestamp único
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           
           for REPO in "${REPOS[@]}"; do
             echo "Construyendo y subiendo imagen para $REPO..."
-            # Usar múltiples tags: latest, commit SHA, y timestamp
-            IMAGE_TAG="${{ github.sha }}-${TIMESTAMP}"
             
+            # Generar un tag único usando SHA, timestamp y un número aleatorio
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            RANDOM_SUFFIX=$(openssl rand -hex 4)
+            IMAGE_TAG="${{ github.sha }}-${TIMESTAMP}-${RANDOM_SUFFIX}"
+            
+            echo "🏗️ Construyendo imagen con tag: $IMAGE_TAG"
             docker build -t $ECR_REGISTRY/$REPO:$IMAGE_TAG -f docker/dockerfile.${REPO##techwave-} .
-            docker tag $ECR_REGISTRY/$REPO:$IMAGE_TAG $ECR_REGISTRY/$REPO:latest
             
-            # Subir ambas versiones
-            echo "Subiendo imagen con tag específico: $IMAGE_TAG"
+            echo "⬆️ Subiendo imagen a ECR..."
             docker push $ECR_REGISTRY/$REPO:$IMAGE_TAG
-            echo "Subiendo imagen con tag latest"
-            docker push $ECR_REGISTRY/$REPO:latest
             
-            echo "Imagen para $REPO subida a ECR con éxito."
-
-            # Nueva forma de verificar la imagen
-            echo "Verificando la disponibilidad de la imagen..."
+            echo "✅ Push completado, verificando disponibilidad..."
+            
+            # Verificación con reintentos
             MAX_RETRIES=5
             RETRIES=0
+            VERIFY_SUCCESS=false
             
             while [ $RETRIES -lt $MAX_RETRIES ]; do
               if aws ecr describe-images \
@@ -153,6 +151,7 @@ jobs:
                 --query 'imageDetails[0].imageTags' \
                 --output text > /dev/null 2>&1; then
                 echo "✅ Imagen verificada exitosamente en ECR"
+                VERIFY_SUCCESS=true
                 break
               fi
               
@@ -171,6 +170,9 @@ jobs:
             DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $ECR_REGISTRY/$REPO:$IMAGE_TAG || echo '')
             if [ ! -z "$DIGEST" ]; then
               echo "✅ Imagen confirmada en ECR con digest: $DIGEST"
+              echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+            else
+              echo "⚠️ No se pudo obtener el digest, pero la imagen debería estar disponible"
             fi
           done
 

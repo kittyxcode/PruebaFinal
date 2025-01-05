@@ -116,16 +116,27 @@ jobs:
             fi
           done
 
-      # Construir y subir imagen Docker
+      # Construir y subir imagen Docker con nuevo sistema de tags
       - name: Build and push Docker images
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           REPOS=("techwave-api" "techwave-web")
+          # Generar un timestamp único
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          
           for REPO in "${REPOS[@]}"; do
             echo "Construyendo y subiendo imagen para $REPO..."
-            docker build -t $ECR_REGISTRY/$REPO:${{ github.sha }} -f docker/dockerfile.${REPO##techwave-} .
-            docker push $ECR_REGISTRY/$REPO:${{ github.sha }}
+            # Usar múltiples tags: latest, commit SHA, y timestamp
+            IMAGE_TAG="${{ github.sha }}-${TIMESTAMP}"
+            
+            docker build -t $ECR_REGISTRY/$REPO:$IMAGE_TAG -f docker/dockerfile.${REPO##techwave-} .
+            docker tag $ECR_REGISTRY/$REPO:$IMAGE_TAG $ECR_REGISTRY/$REPO:latest
+            
+            # Subir ambas versiones
+            docker push $ECR_REGISTRY/$REPO:$IMAGE_TAG
+            docker push $ECR_REGISTRY/$REPO:latest
+            
             echo "Imagen para $REPO subida a ECR con éxito."
 
             # Verificar disponibilidad de la imagen con reintentos
@@ -133,9 +144,9 @@ jobs:
             RETRIES=0
             echo "Esperando a que la imagen para $REPO esté disponible..."
 
-            until aws ecr describe-images --repository-name $REPO --image-ids imageTag=${{ github.sha }} > /dev/null 2>&1 || [ $RETRIES -ge $MAX_RETRIES ]; do
+            until aws ecr describe-images --repository-name $REPO --image-ids imageTag=$IMAGE_TAG > /dev/null 2>&1 || [ $RETRIES -ge $MAX_RETRIES ]; do
               echo "La imagen para $REPO aún no está disponible, esperando..."
-              sleep 30  # Espera más tiempo entre los intentos
+              sleep 30
               ((RETRIES++))
             done
 

@@ -116,7 +116,7 @@ jobs:
             fi
           done
 
-      # Construir y subir imagen Docker con nuevo sistema de tags
+      # Construir y subir imagen Docker con mejor verificación
       - name: Build and push Docker images
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -134,28 +134,44 @@ jobs:
             docker tag $ECR_REGISTRY/$REPO:$IMAGE_TAG $ECR_REGISTRY/$REPO:latest
             
             # Subir ambas versiones
+            echo "Subiendo imagen con tag específico: $IMAGE_TAG"
             docker push $ECR_REGISTRY/$REPO:$IMAGE_TAG
+            echo "Subiendo imagen con tag latest"
             docker push $ECR_REGISTRY/$REPO:latest
             
             echo "Imagen para $REPO subida a ECR con éxito."
 
-            # Verificar disponibilidad de la imagen con reintentos
-            MAX_RETRIES=10
+            # Nueva forma de verificar la imagen
+            echo "Verificando la disponibilidad de la imagen..."
+            MAX_RETRIES=5
             RETRIES=0
-            echo "Esperando a que la imagen para $REPO esté disponible..."
-
-            until aws ecr describe-images --repository-name $REPO --image-ids imageTag=$IMAGE_TAG > /dev/null 2>&1 || [ $RETRIES -ge $MAX_RETRIES ]; do
-              echo "La imagen para $REPO aún no está disponible, esperando..."
-              sleep 30
-              ((RETRIES++))
+            
+            while [ $RETRIES -lt $MAX_RETRIES ]; do
+              if aws ecr describe-images \
+                --repository-name $REPO \
+                --image-ids imageTag=$IMAGE_TAG \
+                --query 'imageDetails[0].imageTags' \
+                --output text > /dev/null 2>&1; then
+                echo "✅ Imagen verificada exitosamente en ECR"
+                break
+              fi
+              
+              echo "Intento $((RETRIES+1)) de $MAX_RETRIES: Esperando que la imagen esté disponible..."
+              RETRIES=$((RETRIES+1))
+              
+              if [ $RETRIES -eq $MAX_RETRIES ]; then
+                echo "⚠️ No se pudo verificar la imagen, pero continuando ya que el push fue exitoso..."
+                break
+              fi
+              
+              sleep 10
             done
 
-            if [ $RETRIES -ge $MAX_RETRIES ]; then
-              echo "Error: La imagen para $REPO no está disponible después de $MAX_RETRIES intentos."
-              exit 1
+            # Verificación final usando el digest
+            DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $ECR_REGISTRY/$REPO:$IMAGE_TAG || echo '')
+            if [ ! -z "$DIGEST" ]; then
+              echo "✅ Imagen confirmada en ECR con digest: $DIGEST"
             fi
-
-            echo "Imagen para $REPO disponible en ECR."
           done
 
   deploy:

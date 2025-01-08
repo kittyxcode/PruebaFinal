@@ -1,6 +1,11 @@
 # ==================================
 # variables.tf
 # ==================================
+
+variable "AWS_ACCOUNT_ID" {
+  description = "AWS Account ID for KMS key policies"
+  type        = string
+}
 variable "aws_region" {
   description = "AWS region"
   type        = string

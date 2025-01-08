@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  TF_VAR_AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}  # Añadido a nivel global
+
 jobs:
   security-scan:
     runs-on: ubuntu-latest
@@ -92,8 +95,6 @@ jobs:
 
       # Crear repositorios ECR
       - name: Create ECR Repositories
-        env:
-          TF_VAR_AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
         run: |
           cd terraform
           terraform init -target=aws_ecr_repository.app -target=aws_ecr_repository.web
@@ -227,15 +228,11 @@ jobs:
 
       # Desplegar con Terraform
       - name: Terraform Init
-        env:
-          TF_VAR_AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
         run: |
           cd terraform
           terraform init -backend-config="bucket=techwave-terraform-state"
 
       - name: Terraform Apply
-        env:
-          TF_VAR_AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
         run: |
           cd terraform
           terraform apply -auto-approve
